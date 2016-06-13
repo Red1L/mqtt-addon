@@ -41,7 +41,7 @@ import java.util.concurrent.TimeUnit;
 public class MqttIT {
 
     @Inject
-    @Named("client1")
+    @Named("client1.id1")
     IMqttClient mqttClient;
 
     @Inject

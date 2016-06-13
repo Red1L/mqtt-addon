@@ -6,7 +6,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/.
  */
 /**
- * 
+ *
  */
 package org.seedstack.mqtt.internal;
 
@@ -15,12 +15,14 @@ import java.util.EnumSet;
 import java.util.Map.Entry;
 import java.util.concurrent.ConcurrentHashMap;
 
+import com.google.common.collect.Lists;
 import org.apache.commons.configuration.Configuration;
 import org.eclipse.paho.client.mqttv3.IMqttClient;
 import org.eclipse.paho.client.mqttv3.MqttCallback;
 import org.eclipse.paho.client.mqttv3.MqttClient;
 import org.eclipse.paho.client.mqttv3.MqttException;
 import org.eclipse.paho.client.mqttv3.MqttSecurityException;
+import org.javatuples.Pair;
 import org.kametic.specifications.Specification;
 import org.seedstack.mqtt.MqttListener;
 import org.seedstack.mqtt.MqttPublishHandler;
@@ -32,7 +34,6 @@ import org.seedstack.seed.core.internal.application.ApplicationPlugin;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.google.common.collect.Lists;
 
 import io.nuun.kernel.api.plugin.InitState;
 import io.nuun.kernel.api.plugin.context.Context;
@@ -43,15 +44,14 @@ import io.nuun.kernel.core.AbstractPlugin;
 /**
  * This plugin provides MQTT support through a plain configuration. It uses Paho
  * library.
- * 
- * @author thierry.bouvet@mpsa.com
  *
+ * @author thierry.bouvet@mpsa.com
  */
 public class MqttPlugin extends AbstractPlugin {
 
     private static final String CONNECTION_CLIENT = "client";
     private static final String CONNECTION_CLIENTS = "clients";
-    private static final String MQTTCLIENT_ID = "client-id";
+    private static final String MQTTCLIENT_IDS = "client-ids";
     private static final String BROKER_URI = "server-uri";
     private static final String RECONNECTION_INTERVAL = "interval";
     private static final String RECONNECTION_MODE = "mode";
@@ -74,8 +74,8 @@ public class MqttPlugin extends AbstractPlugin {
 
     private Application application;
     private Configuration mqttConfiguration;
-    private ConcurrentHashMap<String, MqttClientDefinition> mqttClientDefinitions = new ConcurrentHashMap<String, MqttClientDefinition>();;
-    private ConcurrentHashMap<String, IMqttClient> mqttClients = new ConcurrentHashMap<String, IMqttClient>();;
+    private ConcurrentHashMap<Pair<String, String>, MqttClientDefinition> mqttClientDefinitions = new ConcurrentHashMap<Pair<String, String>, MqttClientDefinition>();
+    private ConcurrentHashMap<Pair<String, String>, IMqttClient> mqttClients = new ConcurrentHashMap<Pair<String, String>, IMqttClient>();
 
     @Override
     public String name() {
@@ -104,14 +104,14 @@ public class MqttPlugin extends AbstractPlugin {
             Class<? extends MqttRejectedExecutionHandler> rejectClass = (Class<? extends MqttRejectedExecutionHandler>) candidate;
             String rejectName = rejectClass.getCanonicalName();
             MqttRejectHandler annotation = rejectClass.getAnnotation(MqttRejectHandler.class);
-            if (!mqttClientDefinitions.containsKey(annotation.clientName())) {
+            if (!mqttClientDefinitions.containsKey(toKey(annotation.clientName()))) {
                 throw SeedException.createNew(MqttErrorCodes.MQTT_REJECT_HANDLER_CLIENT_NOT_FOUND)
                         .put("clientName", annotation.clientName()).put("rejectName", rejectName);
             }
             LOGGER.debug("New MqttRejectHandler callback found: [{}] for client [{}] ",
-                    new Object[] { rejectName, annotation.clientName() });
+                    new Object[]{rejectName, annotation.clientName()});
 
-            mqttClientDefinitions.get(annotation.clientName()).getPoolDefinition().setRejectHandler(rejectClass,
+            mqttClientDefinitions.get(toKey(annotation.clientName())).getPoolDefinition().setRejectHandler(rejectClass,
                     rejectName);
         }
     }
@@ -122,21 +122,21 @@ public class MqttPlugin extends AbstractPlugin {
             Class<? extends MqttCallback> mqttPublisherClass = (Class<? extends MqttCallback>) candidate;
             String mqttPublisherName = mqttPublisherClass.getCanonicalName();
             MqttPublishHandler annotation = mqttPublisherClass.getAnnotation(MqttPublishHandler.class);
-            if (!mqttClientDefinitions.containsKey(annotation.clientName())) {
+            if (!mqttClientDefinitions.containsKey(toKey(annotation.clientName()))) {
                 throw SeedException.createNew(MqttErrorCodes.MQTT_LISTENER_CLIENT_NOT_FOUND)
                         .put("clientName", annotation.clientName()).put("publisherName", mqttPublisherName);
             }
             LOGGER.debug("New MqttPublisher callback found: [{}] for client [{}] ",
-                    new Object[] { mqttPublisherName, annotation.clientName() });
+                    new Object[]{mqttPublisherName, annotation.clientName()});
 
-            mqttClientDefinitions.get(annotation.clientName())
+            mqttClientDefinitions.get(toKey(annotation.clientName()))
                     .setPublisherDefinition(new MqttPublisherDefinition(mqttPublisherClass, mqttPublisherName));
         }
 
     }
 
     private void registerMqttClients() {
-        for (Entry<String, MqttClientDefinition> entry : mqttClientDefinitions.entrySet()) {
+        for (Entry<Pair<String, String>, MqttClientDefinition> entry : mqttClientDefinitions.entrySet()) {
             MqttClientDefinition clientDefinition = entry.getValue();
             try {
                 LOGGER.debug("Create MqttClient [{}]", entry.getKey());
@@ -155,44 +155,60 @@ public class MqttPlugin extends AbstractPlugin {
             Class<? extends MqttCallback> mqttListenerClass = (Class<? extends MqttCallback>) candidate;
             String mqttListenerName = mqttListenerClass.getCanonicalName();
             MqttListener annotation = mqttListenerClass.getAnnotation(MqttListener.class);
-            if (!mqttClientDefinitions.containsKey(annotation.clientName())) {
+            String clientName = annotation.clientName();
+            boolean listenerIsDefined = false;
+            for (Entry<Pair<String, String>, MqttClientDefinition> entry : mqttClientDefinitions.entrySet()) {
+                Pair<String, String> key = entry.getKey();
+                if (clientName.equals(key.getValue0())) {
+                    listenerIsDefined = true;
+                    String[] qosList = annotation.qos();
+                    String[] topics = annotation.topicFilter();
+                    if (qosList.length != topics.length) {
+                        throw SeedException.createNew(MqttErrorCodes.TOPICS_QOS_NOT_EQUAL).put("listenerName",
+                                mqttListenerName);
+                    }
+                    int[] qosListSubstitute = new int[qosList.length];
+                    String[] topicsSubstitute = new String[topics.length];
+
+                    for (int i = 0; i < topics.length; i++) {
+                        qosListSubstitute[i] = Integer.parseInt(application.substituteWithConfiguration(qosList[i]));
+                        topicsSubstitute[i] = application.substituteWithConfiguration(topics[i]);
+                    }
+                    LOGGER.debug("New MqttListener found: [{}] for client [{}.{}] and topicFiler {}",
+                            new Object[]{mqttListenerName, key.toString(), topicsSubstitute});
+
+                    mqttClientDefinitions.get(key).setListenerDefinition(new MqttListenerDefinition(
+                            mqttListenerClass, mqttListenerName, topicsSubstitute, qosListSubstitute));
+                }
+            }
+            if (!listenerIsDefined) {
                 throw SeedException.createNew(MqttErrorCodes.MQTT_LISTENER_CLIENT_NOT_FOUND)
-                        .put("clientName", annotation.clientName()).put("listenerName", mqttListenerName);
+                        .put("clientName", clientName).put("listenerName", mqttListenerName);
             }
-            String[] qosList = annotation.qos();
-            String[] topics = annotation.topicFilter();
-            if (qosList.length != topics.length) {
-                throw SeedException.createNew(MqttErrorCodes.TOPICS_QOS_NOT_EQUAL).put("listenerName",
-                        mqttListenerName);
-            }
-            int[] qosListSubstitute = new int[qosList.length];
-            String[] topicsSubstitute = new String[topics.length];
-
-            for (int i = 0; i < topics.length; i++) {
-                qosListSubstitute[i] = Integer.parseInt(application.substituteWithConfiguration(qosList[i]));
-                topicsSubstitute[i] = application.substituteWithConfiguration(topics[i]);
-            }
-            LOGGER.debug("New MqttListener found: [{}] for client [{}] and topicFiler {}",
-                    new Object[] { mqttListenerName, annotation.clientName(), topicsSubstitute });
-
-            mqttClientDefinitions.get(annotation.clientName()).setListenerDefinition(new MqttListenerDefinition(
-                    mqttListenerClass, mqttListenerName, topicsSubstitute, qosListSubstitute));
         }
+    }
+
+    static Pair<String, String> toKey(String qualifier) {
+        String[] values = qualifier.split("\\.");
+        if (values != null && values.length == 2) {
+            return Pair.fromArray(values);
+        }
+        return Pair.with(qualifier, null);
     }
 
     @Override
     public void stop() {
-        for (Entry<String, IMqttClient> entry : mqttClients.entrySet()) {
+        for (Entry<Pair<String, String>, IMqttClient> entry : mqttClients.entrySet()) {
             IMqttClient client = entry.getValue();
-            String clientName = entry.getKey();
+            Pair<String, String> clientKey = entry.getKey();
             try {
                 if (client.isConnected()) {
                     client.disconnect();
                 }
                 client.close();
-                LOGGER.debug("Disconect MqttClient [{}] ", clientName);
+                LOGGER.debug("Disconect MqttClient [{}.{}] ", clientKey.toString());
             } catch (MqttException e) {
-                LOGGER.error("Can not disconnect MQTT client: {}", clientName, e);
+                LOGGER.error("Can not disconnect MQTT client: {}.{}", clientKey.toString(), e);
             }
         }
         for (MqttClientDefinition clientDefinition : mqttClientDefinitions.values()) {
@@ -205,7 +221,7 @@ public class MqttPlugin extends AbstractPlugin {
 
     @Override
     public Collection<Class<?>> requiredPlugins() {
-        return Lists.<Class<?>> newArrayList(ApplicationPlugin.class);
+        return Lists.<Class<?>>newArrayList(ApplicationPlugin.class);
     }
 
     @Override
@@ -221,72 +237,88 @@ public class MqttPlugin extends AbstractPlugin {
 
     private void configureMqttClients() {
         String[] clients = mqttConfiguration.getStringArray(CONNECTION_CLIENTS);
-
         for (String clientName : clients) {
-            LOGGER.debug("Configure new MqttClient [{}]", clientName);
             Configuration clientConfiguration = mqttConfiguration.subset(CONNECTION_CLIENT + "." + clientName);
-            String uri = clientConfiguration.getString(BROKER_URI);
-            String clientId = clientConfiguration.getString(MQTTCLIENT_ID);
-            if (uri == null) {
-                throw SeedException.createNew(MqttErrorCodes.MISCONFIGURED_MQTT_CLIENT).put("clientName", clientName);
-            }
-            if (clientId == null) {
-                clientId = MqttClient.generateClientId();
-                LOGGER.debug("Generate new client id [{}] for client [{}]", clientId, clientName);
-            }
+            LOGGER.debug("Configure new MqttClient [{}]", clientName);
+            String[] clientIds = getClientIds(clientName);
 
-            MqttClientDefinition def = new MqttClientDefinition(uri, clientId);
-            Configuration reconnectConfiguration = clientConfiguration.subset(RECONNECTION_PROPS);
-            if (!reconnectConfiguration.isEmpty()) {
-                try {
-                    String reconnection = reconnectConfiguration.getString(RECONNECTION_MODE);
-                    if (reconnection != null) {
-                        MqttReconnectionMode mode = Enum.valueOf(MqttReconnectionMode.class, reconnection);
-                        def.setReconnectionMode(mode);
-                    }
-                    String inter = reconnectConfiguration.getString(RECONNECTION_INTERVAL);
-                    if (inter != null) {
-                        def.setReconnectionInterval(Integer.parseInt(inter));
-                    }
-                } catch (Exception e) {
-                    throw SeedException.createNew(MqttErrorCodes.MISCONFIGURED_MQTT_RECONNECTION).put("values",
-                            EnumSet.allOf(MqttReconnectionMode.class));
+            if (clientIds != null && clientIds.length > 0) {
+                for (String clientId : clientIds) {
+                    String uri = clientConfiguration.getString(clientId + "." + BROKER_URI);
+                    registerMqttClient(clientName, clientConfiguration, clientId, uri);
                 }
+            } else {
+                String uri = clientConfiguration.getString(BROKER_URI);
+                registerMqttClient(clientName, clientConfiguration, null, uri);
             }
-            MqttConnectOptionsDefinition connectOptionsDefinition = new MqttConnectOptionsDefinition(
-                    clientConfiguration.subset(MQTT_OPTIONS));
-            def.setConnectOptionsDefinition(connectOptionsDefinition);
-
-            // Check ThreadPool Configuration
-            def.setPoolDefinition(new MqttPoolDefinition(clientConfiguration.subset(POOL_PROPS)));
-
-            mqttClientDefinitions.put(clientName, def);
         }
+    }
+
+    private String[] getClientIds(String clientName) {
+        Configuration clientConfiguration = mqttConfiguration.subset(CONNECTION_CLIENT + "." + clientName);
+        return clientConfiguration.getStringArray(MQTTCLIENT_IDS);
+    }
+
+    private void registerMqttClient(String clientName, Configuration clientConfiguration, String clientId, String uri) {
+        if (uri == null) {
+            throw SeedException.createNew(MqttErrorCodes.MISCONFIGURED_MQTT_CLIENT).put("clientName", clientName);
+        }
+        String generatedClientId = clientId;
+        if (clientId == null) {
+            generatedClientId = MqttClient.generateClientId();
+            LOGGER.debug("Generate new client id [{}] for client [{}]", generatedClientId, clientName);
+        }
+        MqttClientDefinition def = new MqttClientDefinition(uri, generatedClientId);
+
+        Configuration reconnectConfiguration = clientConfiguration.subset(RECONNECTION_PROPS);
+        if (!reconnectConfiguration.isEmpty()) {
+            try {
+                String reconnection = reconnectConfiguration.getString(RECONNECTION_MODE);
+                if (reconnection != null) {
+                    MqttReconnectionMode mode = Enum.valueOf(MqttReconnectionMode.class, reconnection);
+                    def.setReconnectionMode(mode);
+                }
+                String inter = reconnectConfiguration.getString(RECONNECTION_INTERVAL);
+                if (inter != null) {
+                    def.setReconnectionInterval(Integer.parseInt(inter));
+                }
+            } catch (Exception e) {
+                throw SeedException.createNew(MqttErrorCodes.MISCONFIGURED_MQTT_RECONNECTION).put("values",
+                        EnumSet.allOf(MqttReconnectionMode.class));
+            }
+        }
+        MqttConnectOptionsDefinition connectOptionsDefinition = new MqttConnectOptionsDefinition(
+                clientConfiguration.subset(MQTT_OPTIONS));
+        def.setConnectOptionsDefinition(connectOptionsDefinition);
+
+        // Check ThreadPool Configuration
+        def.setPoolDefinition(new MqttPoolDefinition(clientConfiguration.subset(POOL_PROPS)));
+        mqttClientDefinitions.put(Pair.with(clientName, clientId), def);
     }
 
     @Override
     public void start(Context context) {
         super.start(context);
-        for (Entry<String, MqttClientDefinition> entry : mqttClientDefinitions.entrySet()) {
-            String clientName = entry.getKey();
+        for (Entry<Pair<String, String>, MqttClientDefinition> entry : mqttClientDefinitions.entrySet()) {
+            Pair<String, String> clientKey = entry.getKey();
             MqttClientDefinition clientDefinition = entry.getValue();
-            IMqttClient mqttClient = mqttClients.get(clientName);
+            IMqttClient mqttClient = mqttClients.get(clientKey);
             try {
                 MqttClientUtils.connect(mqttClient, clientDefinition);
-                LOGGER.debug("Connect new MqttClient [{}] ", clientName);
+                LOGGER.debug("Connect new MqttClient [{}.{}] ", clientKey.toString());
             } catch (MqttSecurityException e) {
-                throw SeedException.wrap(e, MqttErrorCodes.CAN_NOT_CONNECT_MQTT_CLIENT).put("clientName", clientName);
+                throw SeedException.wrap(e, MqttErrorCodes.CAN_NOT_CONNECT_MQTT_CLIENT).put("clientName", clientKey.toString());
             } catch (MqttException e) {
-                throw SeedException.wrap(e, MqttErrorCodes.CAN_NOT_CONNECT_MQTT_CLIENT).put("clientName", clientName);
+                throw SeedException.wrap(e, MqttErrorCodes.CAN_NOT_CONNECT_MQTT_CLIENT).put("clientName", clientKey.toString());
             }
             MqttListenerDefinition listenerDefinition = clientDefinition.getListenerDefinition();
             if (listenerDefinition != null) {
                 String[] topicFiler = listenerDefinition.getTopicFilter();
                 try {
-                    LOGGER.debug("Subscribe MqttClient [{}] to topicFiler {}", clientName, topicFiler);
+                    LOGGER.debug("Subscribe MqttClient [{}.{}] to topicFiler {}", clientKey.toString(), topicFiler);
                     MqttClientUtils.subscribe(mqttClient, listenerDefinition);
                 } catch (MqttException e) {
-                    throw SeedException.wrap(e, MqttErrorCodes.CAN_NOT_CONNECT_SUBSCRIBE).put("clientName", clientName)
+                    throw SeedException.wrap(e, MqttErrorCodes.CAN_NOT_CONNECT_SUBSCRIBE).put("clientName", clientKey.toString())
                             .put("topic", topicFiler);
                 }
             }

@@ -16,6 +16,7 @@ import mockit.integration.junit4.JMockit;
 import org.apache.commons.configuration.Configuration;
 import org.eclipse.paho.client.mqttv3.IMqttClient;
 import org.eclipse.paho.client.mqttv3.MqttCallback;
+import org.javatuples.Pair;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.seedstack.mqtt.MqttRejectedExecutionHandler;
@@ -44,22 +45,22 @@ public class MqttModuleTest {
      */
     @Test
     public void testConfigure(@Mocked final Binder binder, @Mocked final MqttClientUtils mqttClientUtils) {
-        ConcurrentHashMap<String, MqttClientDefinition> mqttClientDefinitions = new ConcurrentHashMap<String, MqttClientDefinition>();
-        ConcurrentHashMap<String, IMqttClient> mqttClients = new ConcurrentHashMap<String, IMqttClient>();
+        ConcurrentHashMap<Pair<String, String>, MqttClientDefinition> mqttClientDefinitions = new ConcurrentHashMap<Pair<String, String>, MqttClientDefinition>();
+        ConcurrentHashMap<Pair<String, String>, IMqttClient> mqttClients = new ConcurrentHashMap<Pair<String, String>, IMqttClient>();
         final String uri = "uri";
         final String clientId = "id";
         final String clientName = "name";
         MqttClientDefinition clientDefinition = new MqttClientDefinition(uri, clientId);
-        mqttClientDefinitions.put(clientName, clientDefinition);
+        mqttClientDefinitions.put(Pair.with(clientName, clientId), clientDefinition);
 
-        mqttClients.put(clientName, mqttClient);
+        mqttClients.put(Pair.with(clientName, clientId), mqttClient);
         MqttModule module = new MqttModule(mqttClients, mqttClientDefinitions);
 
         module.configure(binder);
 
         new Verifications() {
             {
-                binder.bind(IMqttClient.class).annotatedWith(Names.named(clientName)).toInstance(mqttClient);
+                binder.bind(IMqttClient.class).annotatedWith(MqttModule.clientQualifier(Pair.with(clientName, clientId))).toInstance(mqttClient);
             }
         };
     }
@@ -74,8 +75,8 @@ public class MqttModuleTest {
     @Test
     public void testConfigureWithListener(@Mocked final Binder binder, @Mocked final MqttClientUtils mqttClientUtils,
             @Mocked final Configuration configuration) throws Exception {
-        ConcurrentHashMap<String, MqttClientDefinition> mqttClientDefinitions = new ConcurrentHashMap<String, MqttClientDefinition>();
-        ConcurrentHashMap<String, IMqttClient> mqttClients = new ConcurrentHashMap<String, IMqttClient>();
+        ConcurrentHashMap<Pair<String, String>, MqttClientDefinition> mqttClientDefinitions = new ConcurrentHashMap<Pair<String, String>, MqttClientDefinition>();
+        ConcurrentHashMap<Pair<String, String>, IMqttClient> mqttClients = new ConcurrentHashMap<Pair<String, String>, IMqttClient>();
         final String uri = "uri";
         final String clientId = "id";
         final String clientName = "name";
@@ -89,16 +90,16 @@ public class MqttModuleTest {
         poolDefinition.setRejectHandler(MqttRejectedExecutionHandler.class, handlerName);
         clientDefinition.setPoolDefinition(poolDefinition);
 
-        mqttClientDefinitions.put(clientName, clientDefinition);
+        mqttClientDefinitions.put(Pair.with(clientName, clientId), clientDefinition);
 
-        mqttClients.put(clientName, mqttClient);
+        mqttClients.put(Pair.with(clientName, clientId), mqttClient);
         MqttModule module = new MqttModule(mqttClients, mqttClientDefinitions);
 
         module.configure(binder);
 
         new Verifications() {
             {
-                binder.bind(IMqttClient.class).annotatedWith(Names.named(clientName)).toInstance(mqttClient);
+                binder.bind(IMqttClient.class).annotatedWith(MqttModule.clientQualifier(Pair.with(clientName, clientId))).toInstance(mqttClient);
 
                 binder.bind(MqttCallback.class).annotatedWith(Names.named(Listener1.class.getCanonicalName()))
                         .to(Listener1.class);
@@ -120,8 +121,8 @@ public class MqttModuleTest {
     @Test
     public void testConfigureWithPublisher(@Mocked final Binder binder, @Mocked final MqttClientUtils mqttClientUtils)
             throws Exception {
-        ConcurrentHashMap<String, MqttClientDefinition> mqttClientDefinitions = new ConcurrentHashMap<String, MqttClientDefinition>();
-        ConcurrentHashMap<String, IMqttClient> mqttClients = new ConcurrentHashMap<String, IMqttClient>();
+        ConcurrentHashMap<Pair<String, String>, MqttClientDefinition> mqttClientDefinitions = new ConcurrentHashMap<Pair<String, String>, MqttClientDefinition>();
+        ConcurrentHashMap<Pair<String, String>, IMqttClient> mqttClients = new ConcurrentHashMap<Pair<String, String>, IMqttClient>();
         final String uri = "uri";
         final String clientId = "id";
         final String clientName = "name";
@@ -129,16 +130,16 @@ public class MqttModuleTest {
         final MqttPublisherDefinition publisherDefinition = new MqttPublisherDefinition(PublishHandler.class,
                 PublishHandler.class.getCanonicalName());
         clientDefinition.setPublisherDefinition(publisherDefinition);
-        mqttClientDefinitions.put(clientName, clientDefinition);
+        mqttClientDefinitions.put(Pair.with(clientName, clientId), clientDefinition);
 
-        mqttClients.put(clientName, mqttClient);
+        mqttClients.put(Pair.with(clientName, clientId), mqttClient);
         MqttModule module = new MqttModule(mqttClients, mqttClientDefinitions);
 
         module.configure(binder);
 
         new Verifications() {
             {
-                binder.bind(IMqttClient.class).annotatedWith(Names.named(clientName)).toInstance(mqttClient);
+                binder.bind(IMqttClient.class).annotatedWith(MqttModule.clientQualifier(Pair.with(clientName, clientId))).toInstance(mqttClient);
 
                 binder.bind(MqttCallback.class).annotatedWith(Names.named(PublishHandler.class.getCanonicalName()))
                         .to(PublishHandler.class);

@@ -23,6 +23,7 @@ import org.eclipse.paho.client.mqttv3.IMqttClient;
 import org.eclipse.paho.client.mqttv3.MqttClient;
 import org.eclipse.paho.client.mqttv3.MqttException;
 import org.eclipse.paho.client.mqttv3.MqttSecurityException;
+import org.javatuples.Pair;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -55,6 +56,7 @@ public class MqttPluginTest {
 
     private static final String MQTT_PLUGIN_CONFIGURATION_PREFIX = "org.seedstack.mqtt";
     private static final String CONNECTION_CLIENTS = "clients";
+    private static final String CLIENT_IDS = "client-ids";
     private static final String BROKER_URI = "server-uri";
     private static final String RECONNECTION_INTERVAL = "interval";
     private static final String RECONNECTION_MODE = "mode";
@@ -96,21 +98,21 @@ public class MqttPluginTest {
     public void testStop(@Mocked final IMqttClient mqttClient, @Mocked final Configuration configuration,
             @Mocked final ThreadPoolExecutor executor) throws Exception {
         MqttPlugin plugin = new MqttPlugin();
-        ConcurrentHashMap<String, IMqttClient> clients = new ConcurrentHashMap<String, IMqttClient>();
-        clients.put("id", mqttClient);
+        ConcurrentHashMap<Pair<String, String>, IMqttClient> clients = new ConcurrentHashMap<Pair<String, String>, IMqttClient>();
+        clients.put(Pair.with("id", ""), mqttClient);
         Deencapsulation.setField(plugin, "mqttClients", clients);
 
-        ConcurrentHashMap<String, MqttClientDefinition> mqttClientDefinitions = new ConcurrentHashMap<String, MqttClientDefinition>();
+        ConcurrentHashMap<Pair<String, String>, MqttClientDefinition> mqttClientDefinitions = new ConcurrentHashMap<Pair<String, String>, MqttClientDefinition>();
         MqttClientDefinition clientDefinition = new MqttClientDefinition("xx", "id");
         MqttPoolDefinition poolDefinition = new MqttPoolDefinition(configuration);
         Deencapsulation.setField(poolDefinition, "threadPoolExecutor", executor);
         clientDefinition.setPoolDefinition(poolDefinition);
-        mqttClientDefinitions.put("xx", clientDefinition);
+        mqttClientDefinitions.put(Pair.with("xx", "id"), clientDefinition);
 
         clientDefinition = new MqttClientDefinition("xx2", "id2");
         poolDefinition = new MqttPoolDefinition(configuration);
         clientDefinition.setPoolDefinition(poolDefinition);
-        mqttClientDefinitions.put("xx2", clientDefinition);
+        mqttClientDefinitions.put(Pair.with("xx2", "id2"), clientDefinition);
 
         Deencapsulation.setField(plugin, "mqttClientDefinitions", mqttClientDefinitions);
 
@@ -134,8 +136,8 @@ public class MqttPluginTest {
     @Test
     public void testStopWithDisconnect(@Mocked final IMqttClient mqttClient) throws Exception {
         MqttPlugin plugin = new MqttPlugin();
-        ConcurrentHashMap<String, IMqttClient> clients = new ConcurrentHashMap<String, IMqttClient>();
-        clients.put("id", mqttClient);
+        ConcurrentHashMap<Pair<String, String>, IMqttClient> clients = new ConcurrentHashMap<Pair<String, String>, IMqttClient>();
+        clients.put(Pair.with("id", ""), mqttClient);
         Deencapsulation.setField(plugin, "mqttClients", clients);
 
         new Expectations() {
@@ -162,8 +164,8 @@ public class MqttPluginTest {
     @Test
     public void testStopWithException(@Mocked final IMqttClient mqttClient) throws Exception {
         MqttPlugin plugin = new MqttPlugin();
-        ConcurrentHashMap<String, IMqttClient> clients = new ConcurrentHashMap<String, IMqttClient>();
-        clients.put("id", mqttClient);
+        ConcurrentHashMap<Pair<String, String>, IMqttClient> clients = new ConcurrentHashMap<Pair<String, String>, IMqttClient>();
+        clients.put(Pair.with("id", ""), mqttClient);
         Deencapsulation.setField(plugin, "mqttClients", clients);
         new Expectations() {
             {
@@ -258,6 +260,9 @@ public class MqttPluginTest {
                 configuration.getStringArray(CONNECTION_CLIENTS);
                 result = clients;
 
+                configuration.getStringArray(CLIENT_IDS);
+                result = null;
+
                 configuration.getString(anyString);
                 result = "xx";
             }
@@ -275,6 +280,7 @@ public class MqttPluginTest {
     @Test
     public void testInitWithoutReconnectionConfiguration(@Mocked final Configuration configuration) {
         final String clientName = "clientOK1";
+        final String id = null;
         final String[] clients = { clientName };
         final Collection<Class<?>> classes = new ArrayList<Class<?>>();
         MqttPlugin plugin = new MqttPlugin();
@@ -286,6 +292,9 @@ public class MqttPluginTest {
 
                 configuration.subset(MQTT_PLUGIN_CONFIGURATION_PREFIX);
                 result = configuration;
+
+                configuration.getStringArray(CLIENT_IDS);
+                result = null;
 
                 configuration.isEmpty();
                 result = true;
@@ -312,10 +321,10 @@ public class MqttPluginTest {
         plugin.init(initContext);
 
         MqttClientDefinition def = new MqttClientDefinition(defaultConfigString, defaultConfigString);
-        ConcurrentHashMap<String, MqttClientDefinition> defs = Deencapsulation.getField(plugin,
+        ConcurrentHashMap<Pair<String, String>, MqttClientDefinition> defs = Deencapsulation.getField(plugin,
                 "mqttClientDefinitions");
         Assertions.assertThat(defs).isNotEmpty();
-        MqttClientDefinition clientDef = defs.get(clientName);
+        MqttClientDefinition clientDef = defs.get(Pair.with(clientName, id));
         Assertions.assertThat(clientDef.getReconnectionInterval()).isEqualTo(def.getReconnectionInterval());
         Assertions.assertThat(clientDef.getReconnectionMode()).isEqualTo(def.getReconnectionMode());
     }
@@ -328,6 +337,7 @@ public class MqttPluginTest {
     @Test
     public void testInitWithDefaultReconnection(@Mocked final Configuration configuration) {
         final String clientName = "clientOK1";
+        final String id = null;
         final String[] clients = { clientName };
         final Collection<Class<?>> classes = new ArrayList<Class<?>>();
         MqttPlugin plugin = new MqttPlugin();
@@ -339,6 +349,9 @@ public class MqttPluginTest {
 
                 configuration.subset(MQTT_PLUGIN_CONFIGURATION_PREFIX);
                 result = configuration;
+
+                configuration.getStringArray(CLIENT_IDS);
+                result = null;
 
                 configuration.getStringArray(CONNECTION_CLIENTS);
                 result = clients;
@@ -362,10 +375,10 @@ public class MqttPluginTest {
         plugin.init(initContext);
 
         MqttClientDefinition def = new MqttClientDefinition(defaultConfigString, defaultConfigString);
-        ConcurrentHashMap<String, MqttClientDefinition> defs = Deencapsulation.getField(plugin,
+        ConcurrentHashMap<Pair<String, String>, MqttClientDefinition> defs = Deencapsulation.getField(plugin,
                 "mqttClientDefinitions");
         Assertions.assertThat(defs).isNotEmpty();
-        MqttClientDefinition clientDef = defs.get(clientName);
+        MqttClientDefinition clientDef = defs.get(Pair.with(clientName, id));
         Assertions.assertThat(clientDef.getReconnectionInterval()).isEqualTo(def.getReconnectionInterval());
         Assertions.assertThat(clientDef.getReconnectionMode()).isEqualTo(def.getReconnectionMode());
     }
@@ -378,6 +391,7 @@ public class MqttPluginTest {
     @Test
     public void testInitWithCustomClient(@Mocked final Configuration configuration) {
         final String clientName = "clientOK1";
+        final String id = null;
         final String defaultString = "xx";
         final String[] clients = { clientName };
         final Collection<Class<?>> classes = new ArrayList<Class<?>>();
@@ -392,6 +406,9 @@ public class MqttPluginTest {
 
                 configuration.getStringArray(CONNECTION_CLIENTS);
                 result = clients;
+
+                configuration.getStringArray(CLIENT_IDS);
+                result = null;
 
                 configuration.getString(BROKER_URI);
                 result = defaultString;
@@ -415,10 +432,10 @@ public class MqttPluginTest {
 
         plugin.init(initContext);
 
-        ConcurrentHashMap<String, MqttClientDefinition> defs = Deencapsulation.getField(plugin,
+        ConcurrentHashMap<Pair<String, String>, MqttClientDefinition> defs = Deencapsulation.getField(plugin,
                 "mqttClientDefinitions");
         Assertions.assertThat(defs).isNotEmpty();
-        MqttClientDefinition clientDef = defs.get(clientName);
+        MqttClientDefinition clientDef = defs.get(Pair.with(clientName, id));
         Assertions.assertThat(clientDef.getReconnectionInterval()).isEqualTo(12);
         Assertions.assertThat(clientDef.getReconnectionMode()).isEqualTo(MqttReconnectionMode.NONE);
 
@@ -446,6 +463,9 @@ public class MqttPluginTest {
                 configuration.getStringArray(CONNECTION_CLIENTS);
                 result = clients;
 
+                configuration.getStringArray(CLIENT_IDS);
+                result = null;
+
                 configuration.getString(BROKER_URI);
                 result = "xx";
 
@@ -467,6 +487,7 @@ public class MqttPluginTest {
     @Test
     public void testInitWithListener(@Mocked final Configuration configuration) {
         final String clientName = "clientOK1";
+        final String id = null;
         final String[] clients = { clientName };
         final Collection<Class<?>> classes = new ArrayList<Class<?>>();
         classes.add(Listener1.class);
@@ -481,6 +502,9 @@ public class MqttPluginTest {
 
                 configuration.getStringArray(CONNECTION_CLIENTS);
                 result = clients;
+
+                configuration.getStringArray(CLIENT_IDS);
+                result = null;
 
                 configuration.getString(BROKER_URI);
                 result = "xx";
@@ -503,10 +527,10 @@ public class MqttPluginTest {
 
         plugin.init(initContext);
 
-        ConcurrentHashMap<String, MqttClientDefinition> defs = Deencapsulation.getField(plugin,
+        ConcurrentHashMap<Pair<String, String>, MqttClientDefinition> defs = Deencapsulation.getField(plugin,
                 "mqttClientDefinitions");
         Assertions.assertThat(defs).isNotEmpty();
-        MqttClientDefinition clientDef = defs.get(clientName);
+        MqttClientDefinition clientDef = defs.get(Pair.with(clientName, id));
         Assertions.assertThat(clientDef.getListenerDefinition()).isNotNull();
         Assertions.assertThat(clientDef.getListenerDefinition().getListenerClass()).isEqualTo(Listener1.class);
     }
@@ -549,6 +573,7 @@ public class MqttPluginTest {
     @Test
     public void testInitWithPublisher(@Mocked final Configuration configuration) {
         final String clientName = "clientOK1";
+        final String id = null;
         final String[] clients = { clientName };
         final Collection<Class<?>> listenerClasses = new ArrayList<Class<?>>();
         final Collection<Class<?>> rejectedHandlers = new ArrayList<Class<?>>();
@@ -565,6 +590,9 @@ public class MqttPluginTest {
 
                 configuration.getStringArray(CONNECTION_CLIENTS);
                 result = clients;
+
+                configuration.getStringArray(CLIENT_IDS);
+                result = null;
 
                 configuration.getString(BROKER_URI);
                 result = "xx";
@@ -586,10 +614,10 @@ public class MqttPluginTest {
 
         plugin.init(initContext);
 
-        ConcurrentHashMap<String, MqttClientDefinition> defs = Deencapsulation.getField(plugin,
+        ConcurrentHashMap<Pair<String, String>, MqttClientDefinition> defs = Deencapsulation.getField(plugin,
                 "mqttClientDefinitions");
         Assertions.assertThat(defs).isNotEmpty();
-        MqttClientDefinition clientDef = defs.get("clientOK1");
+        MqttClientDefinition clientDef = defs.get(Pair.with(clientName, id));
         Assertions.assertThat(clientDef.getPublisherDefinition()).isNotNull();
         Assertions.assertThat(clientDef.getPublisherDefinition().getPublisherClass()).isEqualTo(PublishHandler.class);
 
@@ -618,6 +646,9 @@ public class MqttPluginTest {
 
                 configuration.getStringArray(CONNECTION_CLIENTS);
                 result = clients;
+
+                configuration.getStringArray(CLIENT_IDS);
+                result = null;
 
                 configuration.getString(BROKER_URI);
                 result = "xx";
@@ -664,8 +695,8 @@ public class MqttPluginTest {
     public void testNativeUnitModule() {
         MockUp<MqttModule> module = new MockUp<MqttModule>() {
             @Mock
-            public void $init(ConcurrentHashMap<String, IMqttClient> mqttClients,
-                    ConcurrentHashMap<String, MqttClientDefinition> mqttClientDefinitions) {
+            public void $init(ConcurrentHashMap<Pair<String, String>, IMqttClient> mqttClients,
+                    ConcurrentHashMap<Pair<String, String>, MqttClientDefinition> mqttClientDefinitions) {
             }
 
         };
@@ -692,6 +723,7 @@ public class MqttPluginTest {
     @Test
     public void testInitWithRejectHandler(@Mocked final Configuration configuration) {
         final String clientName = "clientOK1";
+        final String id = null;
         final String[] clients = { clientName };
         final Collection<Class<?>> classes = new ArrayList<Class<?>>();
         classes.add(MyRejectHandler.class);
@@ -708,6 +740,9 @@ public class MqttPluginTest {
 
                 configuration.getStringArray(CONNECTION_CLIENTS);
                 result = clients;
+
+                configuration.getStringArray(CLIENT_IDS);
+                result = null;
 
                 configuration.getString(BROKER_URI);
                 result = "xx";
@@ -729,10 +764,10 @@ public class MqttPluginTest {
 
         plugin.init(initContext);
 
-        ConcurrentHashMap<String, MqttClientDefinition> defs = Deencapsulation.getField(plugin,
+        ConcurrentHashMap<Pair<String, String>, MqttClientDefinition> defs = Deencapsulation.getField(plugin,
                 "mqttClientDefinitions");
         Assertions.assertThat(defs).isNotEmpty();
-        MqttClientDefinition clientDef = defs.get(clientName);
+        MqttClientDefinition clientDef = defs.get(Pair.with(clientName, id));
         Assertions.assertThat(clientDef.getPoolDefinition()).isNotNull();
         Assertions.assertThat(clientDef.getPoolDefinition().getRejectHandlerClass()).isEqualTo(MyRejectHandler.class);
     }
@@ -781,19 +816,20 @@ public class MqttPluginTest {
             @Mocked final Context context, @Mocked final MqttClientUtils mqttClientUtils) throws Exception {
         MqttPlugin plugin = new MqttPlugin();
 
-        ConcurrentHashMap<String, IMqttClient> clients = new ConcurrentHashMap<String, IMqttClient>();
+        ConcurrentHashMap<Pair<String, String>, IMqttClient> clients = new ConcurrentHashMap<Pair<String, String>, IMqttClient>();
         final String client1 = "clientName";
-        clients.put(client1, mqttClient);
+        final String clientId = "id";
+        clients.put(Pair.with(client1, clientId), mqttClient);
         Deencapsulation.setField(plugin, "mqttClients", clients);
 
-        ConcurrentHashMap<String, MqttClientDefinition> mqttClientDefinitions = new ConcurrentHashMap<String, MqttClientDefinition>();
+        ConcurrentHashMap<Pair<String, String>, MqttClientDefinition> mqttClientDefinitions = new ConcurrentHashMap<Pair<String, String>, MqttClientDefinition>();
 
         // client 1 with listener
         final MqttClientDefinition clientDefinition = new MqttClientDefinition("xx", "id");
         final MqttListenerDefinition listenerDefinition = new MqttListenerDefinition(Listener1.class,
                 Listener1.class.getCanonicalName(), new String[] { "topic" }, new int[] { 0 });
         clientDefinition.setListenerDefinition(listenerDefinition);
-        mqttClientDefinitions.put(client1, clientDefinition);
+        mqttClientDefinitions.put(Pair.with(client1, clientId), clientDefinition);
 
         Deencapsulation.setField(plugin, "mqttClientDefinitions", mqttClientDefinitions);
 
@@ -823,15 +859,16 @@ public class MqttPluginTest {
             @Mocked final MqttClientUtils mqttClientUtils) throws Exception {
         MqttPlugin plugin = new MqttPlugin();
 
-        ConcurrentHashMap<String, IMqttClient> clients = new ConcurrentHashMap<String, IMqttClient>();
+        ConcurrentHashMap<Pair<String, String>, IMqttClient> clients = new ConcurrentHashMap<Pair<String, String>, IMqttClient>();
         final String client1 = "clientName";
-        clients.put(client1, mqttClient);
+        final String clientId = "id";
+        clients.put(Pair.with(client1, clientId), mqttClient);
         Deencapsulation.setField(plugin, "mqttClients", clients);
 
-        ConcurrentHashMap<String, MqttClientDefinition> mqttClientDefinitions = new ConcurrentHashMap<String, MqttClientDefinition>();
+        ConcurrentHashMap<Pair<String, String>, MqttClientDefinition> mqttClientDefinitions = new ConcurrentHashMap<Pair<String, String>, MqttClientDefinition>();
 
         final MqttClientDefinition clientDefinition = new MqttClientDefinition("xx", "id");
-        mqttClientDefinitions.put(client1, clientDefinition);
+        mqttClientDefinitions.put(Pair.with(client1, "id"), clientDefinition);
 
         Deencapsulation.setField(plugin, "mqttClientDefinitions", mqttClientDefinitions);
 
@@ -860,15 +897,16 @@ public class MqttPluginTest {
             @Mocked final MqttClientUtils mqttClientUtils) throws Exception {
         MqttPlugin plugin = new MqttPlugin();
 
-        ConcurrentHashMap<String, IMqttClient> clients = new ConcurrentHashMap<String, IMqttClient>();
+        ConcurrentHashMap<Pair<String, String>, IMqttClient> clients = new ConcurrentHashMap<Pair<String, String>, IMqttClient>();
         final String client1 = "clientName";
-        clients.put(client1, mqttClient);
+        final String clientId = "id";
+        clients.put(Pair.with(client1, clientId), mqttClient);
         Deencapsulation.setField(plugin, "mqttClients", clients);
 
-        ConcurrentHashMap<String, MqttClientDefinition> mqttClientDefinitions = new ConcurrentHashMap<String, MqttClientDefinition>();
+        ConcurrentHashMap<Pair<String, String>, MqttClientDefinition> mqttClientDefinitions = new ConcurrentHashMap<Pair<String, String>, MqttClientDefinition>();
 
         final MqttClientDefinition clientDefinition = new MqttClientDefinition("xx", "id");
-        mqttClientDefinitions.put(client1, clientDefinition);
+        mqttClientDefinitions.put(Pair.with(client1, clientId), clientDefinition);
 
         Deencapsulation.setField(plugin, "mqttClientDefinitions", mqttClientDefinitions);
 
@@ -895,15 +933,16 @@ public class MqttPluginTest {
             @Mocked final MqttClientUtils mqttClientUtils) throws Exception {
         MqttPlugin plugin = new MqttPlugin();
 
-        ConcurrentHashMap<String, IMqttClient> clients = new ConcurrentHashMap<String, IMqttClient>();
+        ConcurrentHashMap<Pair<String, String>, IMqttClient> clients = new ConcurrentHashMap<Pair<String, String>, IMqttClient>();
         final String client1 = "clientName";
-        clients.put(client1, mqttClient);
+        final String clientId = "id";
+        clients.put(Pair.with(client1, clientId), mqttClient);
         Deencapsulation.setField(plugin, "mqttClients", clients);
 
-        ConcurrentHashMap<String, MqttClientDefinition> mqttClientDefinitions = new ConcurrentHashMap<String, MqttClientDefinition>();
+        ConcurrentHashMap<Pair<String, String>, MqttClientDefinition> mqttClientDefinitions = new ConcurrentHashMap<Pair<String, String>, MqttClientDefinition>();
 
         final MqttClientDefinition clientDefinition = new MqttClientDefinition("xx", "id");
-        mqttClientDefinitions.put(client1, clientDefinition);
+        mqttClientDefinitions.put(Pair.with(client1, clientId), clientDefinition);
 
         Deencapsulation.setField(plugin, "mqttClientDefinitions", mqttClientDefinitions);
 
@@ -930,19 +969,20 @@ public class MqttPluginTest {
             @Mocked final MqttClientUtils mqttClientUtils) throws Exception {
         MqttPlugin plugin = new MqttPlugin();
 
-        ConcurrentHashMap<String, IMqttClient> clients = new ConcurrentHashMap<String, IMqttClient>();
+        ConcurrentHashMap<Pair<String, String>, IMqttClient> clients = new ConcurrentHashMap<Pair<String, String>, IMqttClient>();
         final String client1 = "clientName";
-        clients.put(client1, mqttClient);
+        final String clientId = "id";
+        clients.put(Pair.with(client1, clientId), mqttClient);
         Deencapsulation.setField(plugin, "mqttClients", clients);
 
-        ConcurrentHashMap<String, MqttClientDefinition> mqttClientDefinitions = new ConcurrentHashMap<String, MqttClientDefinition>();
+        ConcurrentHashMap<Pair<String, String>, MqttClientDefinition> mqttClientDefinitions = new ConcurrentHashMap<Pair<String, String>, MqttClientDefinition>();
 
         // client 1 with listener
         final MqttClientDefinition clientDefinition = new MqttClientDefinition("xx", "id");
         final MqttListenerDefinition listenerDefinition = new MqttListenerDefinition(Listener1.class,
                 Listener1.class.getCanonicalName(), new String[] { "topic" }, new int[] { 0 });
         clientDefinition.setListenerDefinition(listenerDefinition);
-        mqttClientDefinitions.put(client1, clientDefinition);
+        mqttClientDefinitions.put(Pair.with(client1, clientId), clientDefinition);
 
         Deencapsulation.setField(plugin, "mqttClientDefinitions", mqttClientDefinitions);
 
