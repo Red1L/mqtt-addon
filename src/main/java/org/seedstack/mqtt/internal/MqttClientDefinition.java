@@ -6,7 +6,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/.
  */
 /**
- * 
+ *
  */
 package org.seedstack.mqtt.internal;
 
@@ -17,7 +17,7 @@ import org.eclipse.paho.client.mqttv3.MqttConnectOptions;
  * Defined all MQTT configuration: {@link MqttConnectOptions},
  * {@link MqttListenerDefinition}. This definition is used to create
  * {@link MqttClient}.
- * 
+ *
  * @author thierry.bouvet@mpsa.com
  *
  */
@@ -35,7 +35,7 @@ class MqttClientDefinition {
 
     /**
      * Default constructor.
-     * 
+     *
      * @param uri
      *            mqtt broker url
      * @param clientId

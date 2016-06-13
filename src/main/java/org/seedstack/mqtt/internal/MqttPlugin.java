@@ -6,21 +6,18 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/.
  */
 /**
- * 
+ *
  */
 package org.seedstack.mqtt.internal;
 
-import java.util.Collection;
-import java.util.EnumSet;
-import java.util.Map.Entry;
-import java.util.concurrent.ConcurrentHashMap;
-
+import com.google.common.collect.Lists;
+import io.nuun.kernel.api.plugin.InitState;
+import io.nuun.kernel.api.plugin.context.Context;
+import io.nuun.kernel.api.plugin.context.InitContext;
+import io.nuun.kernel.api.plugin.request.ClasspathScanRequest;
+import io.nuun.kernel.core.AbstractPlugin;
 import org.apache.commons.configuration.Configuration;
-import org.eclipse.paho.client.mqttv3.IMqttClient;
-import org.eclipse.paho.client.mqttv3.MqttCallback;
-import org.eclipse.paho.client.mqttv3.MqttClient;
-import org.eclipse.paho.client.mqttv3.MqttException;
-import org.eclipse.paho.client.mqttv3.MqttSecurityException;
+import org.eclipse.paho.client.mqttv3.*;
 import org.kametic.specifications.Specification;
 import org.seedstack.mqtt.MqttListener;
 import org.seedstack.mqtt.MqttPublishHandler;
@@ -32,26 +29,22 @@ import org.seedstack.seed.core.internal.application.ApplicationPlugin;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.google.common.collect.Lists;
-
-import io.nuun.kernel.api.plugin.InitState;
-import io.nuun.kernel.api.plugin.context.Context;
-import io.nuun.kernel.api.plugin.context.InitContext;
-import io.nuun.kernel.api.plugin.request.ClasspathScanRequest;
-import io.nuun.kernel.core.AbstractPlugin;
+import java.util.Collection;
+import java.util.EnumSet;
+import java.util.Map.Entry;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * This plugin provides MQTT support through a plain configuration. It uses Paho
  * library.
- * 
- * @author thierry.bouvet@mpsa.com
  *
+ * @author thierry.bouvet@mpsa.com
  */
 public class MqttPlugin extends AbstractPlugin {
 
     private static final String CONNECTION_CLIENT = "client";
     private static final String CONNECTION_CLIENTS = "clients";
-    private static final String MQTTCLIENT_ID = "client-id";
+    private static final String MQTTCLIENT_ID = "client-ids";
     private static final String BROKER_URI = "server-uri";
     private static final String RECONNECTION_INTERVAL = "interval";
     private static final String RECONNECTION_MODE = "mode";
@@ -74,8 +67,10 @@ public class MqttPlugin extends AbstractPlugin {
 
     private Application application;
     private Configuration mqttConfiguration;
-    private ConcurrentHashMap<String, MqttClientDefinition> mqttClientDefinitions = new ConcurrentHashMap<String, MqttClientDefinition>();;
-    private ConcurrentHashMap<String, IMqttClient> mqttClients = new ConcurrentHashMap<String, IMqttClient>();;
+    private ConcurrentHashMap<String, MqttClientDefinition> mqttClientDefinitions = new ConcurrentHashMap<String, MqttClientDefinition>();
+    ;
+    private ConcurrentHashMap<String, IMqttClient> mqttClients = new ConcurrentHashMap<String, IMqttClient>();
+    ;
 
     @Override
     public String name() {
@@ -109,7 +104,7 @@ public class MqttPlugin extends AbstractPlugin {
                         .put("clientName", annotation.clientName()).put("rejectName", rejectName);
             }
             LOGGER.debug("New MqttRejectHandler callback found: [{}] for client [{}] ",
-                    new Object[] { rejectName, annotation.clientName() });
+                    new Object[]{rejectName, annotation.clientName()});
 
             mqttClientDefinitions.get(annotation.clientName()).getPoolDefinition().setRejectHandler(rejectClass,
                     rejectName);
@@ -127,7 +122,7 @@ public class MqttPlugin extends AbstractPlugin {
                         .put("clientName", annotation.clientName()).put("publisherName", mqttPublisherName);
             }
             LOGGER.debug("New MqttPublisher callback found: [{}] for client [{}] ",
-                    new Object[] { mqttPublisherName, annotation.clientName() });
+                    new Object[]{mqttPublisherName, annotation.clientName()});
 
             mqttClientDefinitions.get(annotation.clientName())
                     .setPublisherDefinition(new MqttPublisherDefinition(mqttPublisherClass, mqttPublisherName));
@@ -173,7 +168,7 @@ public class MqttPlugin extends AbstractPlugin {
                 topicsSubstitute[i] = application.substituteWithConfiguration(topics[i]);
             }
             LOGGER.debug("New MqttListener found: [{}] for client [{}] and topicFiler {}",
-                    new Object[] { mqttListenerName, annotation.clientName(), topicsSubstitute });
+                    new Object[]{mqttListenerName, annotation.clientName(), topicsSubstitute});
 
             mqttClientDefinitions.get(annotation.clientName()).setListenerDefinition(new MqttListenerDefinition(
                     mqttListenerClass, mqttListenerName, topicsSubstitute, qosListSubstitute));
@@ -205,7 +200,7 @@ public class MqttPlugin extends AbstractPlugin {
 
     @Override
     public Collection<Class<?>> requiredPlugins() {
-        return Lists.<Class<?>> newArrayList(ApplicationPlugin.class);
+        return Lists.<Class<?>>newArrayList(ApplicationPlugin.class);
     }
 
     @Override
@@ -225,43 +220,54 @@ public class MqttPlugin extends AbstractPlugin {
         for (String clientName : clients) {
             LOGGER.debug("Configure new MqttClient [{}]", clientName);
             Configuration clientConfiguration = mqttConfiguration.subset(CONNECTION_CLIENT + "." + clientName);
-            String uri = clientConfiguration.getString(BROKER_URI);
-            String clientId = clientConfiguration.getString(MQTTCLIENT_ID);
-            if (uri == null) {
-                throw SeedException.createNew(MqttErrorCodes.MISCONFIGURED_MQTT_CLIENT).put("clientName", clientName);
-            }
-            if (clientId == null) {
-                clientId = MqttClient.generateClientId();
-                LOGGER.debug("Generate new client id [{}] for client [{}]", clientId, clientName);
-            }
-
-            MqttClientDefinition def = new MqttClientDefinition(uri, clientId);
-            Configuration reconnectConfiguration = clientConfiguration.subset(RECONNECTION_PROPS);
-            if (!reconnectConfiguration.isEmpty()) {
-                try {
-                    String reconnection = reconnectConfiguration.getString(RECONNECTION_MODE);
-                    if (reconnection != null) {
-                        MqttReconnectionMode mode = Enum.valueOf(MqttReconnectionMode.class, reconnection);
-                        def.setReconnectionMode(mode);
-                    }
-                    String inter = reconnectConfiguration.getString(RECONNECTION_INTERVAL);
-                    if (inter != null) {
-                        def.setReconnectionInterval(Integer.parseInt(inter));
-                    }
-                } catch (Exception e) {
-                    throw SeedException.createNew(MqttErrorCodes.MISCONFIGURED_MQTT_RECONNECTION).put("values",
-                            EnumSet.allOf(MqttReconnectionMode.class));
+            String[] clientIds = clientConfiguration.getStringArray(MQTTCLIENT_ID);
+            if (clientIds != null && clientIds.length > 0) {
+                for (String clientId : clientIds) {
+                    String uri = clientConfiguration.getString(clientId + "." + BROKER_URI);
+                    registerMqttClient(clientName, clientConfiguration, clientId, uri);
                 }
+            } else {
+                String uri = clientConfiguration.getString(BROKER_URI);
+                registerMqttClient(clientName, clientConfiguration, null, uri);
             }
-            MqttConnectOptionsDefinition connectOptionsDefinition = new MqttConnectOptionsDefinition(
-                    clientConfiguration.subset(MQTT_OPTIONS));
-            def.setConnectOptionsDefinition(connectOptionsDefinition);
-
-            // Check ThreadPool Configuration
-            def.setPoolDefinition(new MqttPoolDefinition(clientConfiguration.subset(POOL_PROPS)));
-
-            mqttClientDefinitions.put(clientName, def);
         }
+    }
+
+    private void registerMqttClient(String clientName, Configuration clientConfiguration, String clientId, String uri) {
+        if (uri == null) {
+            throw SeedException.createNew(MqttErrorCodes.MISCONFIGURED_MQTT_CLIENT).put("clientName", clientName);
+        }
+        if (clientId == null) {
+            clientId = MqttClient.generateClientId();
+            LOGGER.debug("Generate new client id [{}] for client [{}]", clientId, clientName);
+        }
+
+        MqttClientDefinition def = new MqttClientDefinition(uri, clientId);
+        Configuration reconnectConfiguration = clientConfiguration.subset(RECONNECTION_PROPS);
+        if (!reconnectConfiguration.isEmpty()) {
+            try {
+                String reconnection = reconnectConfiguration.getString(RECONNECTION_MODE);
+                if (reconnection != null) {
+                    MqttReconnectionMode mode = Enum.valueOf(MqttReconnectionMode.class, reconnection);
+                    def.setReconnectionMode(mode);
+                }
+                String inter = reconnectConfiguration.getString(RECONNECTION_INTERVAL);
+                if (inter != null) {
+                    def.setReconnectionInterval(Integer.parseInt(inter));
+                }
+            } catch (Exception e) {
+                throw SeedException.createNew(MqttErrorCodes.MISCONFIGURED_MQTT_RECONNECTION).put("values",
+                        EnumSet.allOf(MqttReconnectionMode.class));
+            }
+        }
+        MqttConnectOptionsDefinition connectOptionsDefinition = new MqttConnectOptionsDefinition(
+                clientConfiguration.subset(MQTT_OPTIONS));
+        def.setConnectOptionsDefinition(connectOptionsDefinition);
+
+        // Check ThreadPool Configuration
+        def.setPoolDefinition(new MqttPoolDefinition(clientConfiguration.subset(POOL_PROPS)));
+
+        mqttClientDefinitions.put(clientName, def);
     }
 
     @Override
